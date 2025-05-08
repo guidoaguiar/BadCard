@@ -121,16 +121,33 @@ void BleKeyboard::begin(void)
   hid->pnp(0x02, vid, pid, version);
   hid->hidInfo(0x00, 0x01);
 
-
-#if defined(USE_NIMBLE)
-
-  BLEDevice::setSecurityAuth(true, true, true);
-
-#else
-
+  #if defined(USE_NIMBLE)
+  // Apply security settings based on mode
+  if (securityMode == BLE_SECURITY_HIGH) {
+    // Default secure mode - requires pairing confirmation
+    BLEDevice::setSecurityAuth(true, true, true);
+    BLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_YESNO); // Display with Yes/No input
+  } else {
+    // Lower security mode - no input/output pairing requirements
+    // This allows connections without user confirmation
+    BLEDevice::setSecurityAuth(true, false, false); // bonding=true, mitm=false, sc=false
+    BLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT); // No input, no output capability
+  }
+  #else
   BLESecurity* pSecurity = new BLESecurity();
-  pSecurity->setAuthenticationMode(ESP_LE_AUTH_REQ_SC_MITM_BOND);
-
+  
+  if (securityMode == BLE_SECURITY_HIGH) {
+    // Default secure mode - requires pairing confirmation
+    pSecurity->setAuthenticationMode(ESP_LE_AUTH_REQ_SC_MITM_BOND);
+    pSecurity->setCapability(ESP_IO_CAP_IO); // Display with Yes/No capability
+    pSecurity->setKeySize(16);
+  } else {
+    // Lower security mode - no input/output pairing requirements
+    // This allows connections without user confirmation
+    pSecurity->setAuthenticationMode(ESP_LE_AUTH_BOND);
+    pSecurity->setCapability(ESP_IO_CAP_NONE);
+    pSecurity->setKeySize(16);
+  }
 #endif // USE_NIMBLE
 
   hid->reportMap((uint8_t*)_hidReportDescriptor, sizeof(_hidReportDescriptor));
@@ -145,7 +162,7 @@ void BleKeyboard::begin(void)
   advertising->start();
   hid->setBatteryLevel(batteryLevel);
 
-  ESP_LOGD(LOG_TAG, "Advertising started!");
+  ESP_LOGI(LOG_TAG, "Advertising started with security mode: %d", securityMode);
 }
 
 void BleKeyboard::setLayout(KeyboardLayout *layout) {
@@ -195,6 +212,10 @@ void BleKeyboard::set_product_id(uint16_t pid) {
 
 void BleKeyboard::set_version(uint16_t version) { 
 	this->version = version; 
+}
+
+void BleKeyboard::setSecurityMode(uint8_t mode) {
+  this->securityMode = mode;
 }
 
 void BleKeyboard::sendReport(BLEKeyReport* keys)

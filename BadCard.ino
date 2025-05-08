@@ -1,10 +1,13 @@
 #include <SD.h>
-
 #include "src/Unicode/unicode.h"
-
 #include "icons.h"
-
 #include "USB.h"
+
+// For BLE device scanning
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEScan.h>
+#include <BLEAdvertisedDevice.h>
 
 // https://gitlab.com/DJPX/advanced-keyboard-support-arduino
 #include "src/USBHID-Keyboard/USBHIDKeyboard.h"
@@ -34,6 +37,15 @@ BleKeyboard BLEKeyboard("GoodCard :)", "VoidNoi", 100);
 
 // Additional variable to control BLE key press timing
 int bleKeyDelay = 20; // milliseconds between key events in BLE mode
+
+// BLE scan settings
+int scanTime = 5; // seconds to scan for BLE devices
+BLEScan* pBLEScan;
+#define MAX_BLE_DEVICES 20
+String bleDeviceNames[MAX_BLE_DEVICES];
+String bleDeviceAddresses[MAX_BLE_DEVICES];
+int bleDeviceCount = 0;
+bool activeBLEConnection = false; // Flag to track if we're in active connection mode
 
 #include <SPI.h>
 #include "M5Cardputer.h"
@@ -748,19 +760,21 @@ void handleFolders() {
       fileType[1] = 1;
       fileType[2] = 2;
     } else {
-      fileAmount = 4;
+      fileAmount = 5; // Increased from 4 to 5 for the new BLE option
       path = root;
       pathLen = 0;
       
       sdFiles[0] = "NEW SCRIPT";
       sdFiles[1] = "NEW FOLDER";
-      sdFiles[2] = isBLE ? "BLE ACTIVATED":"ACTIVATE BLE";
-      sdFiles[3] = "KB LAYOUT";
+      sdFiles[2] = isBLE ? "BLE ACTIVATED" : "BLE PASSIVE MODE";
+      sdFiles[3] = "BLE SCAN & CONNECT";
+      sdFiles[4] = "KB LAYOUT";
       
       fileType[0] = 1;
       fileType[1] = 2;
       fileType[2] = 3;
-      fileType[3] = 4;
+      fileType[3] = 8; // New file type for BLE scan and connect
+      fileType[4] = 4;
     }
     
     getDirectory(path, fileAmount, sdFiles, fileType);
@@ -893,11 +907,23 @@ void mainOptions() {
     display.fillScreen(BLACK);
     if (!isBLE) {
       isBLE = true;
+      // Set the security mode to low (no authorization required) for headless servers
+      BLEKeyboard.setSecurityMode(BLE_SECURITY_LOW);
       BLEKeyboard.begin();
-      sdFiles[1] = "BLE ACTIVATED";
+      sdFiles[2] = "BLE ACTIVATED";
+      display.setTextSize(1);
+      display.setCursor(5, 5);
+      display.println("BLE activated in headless mode");
+      display.println("No authorization required");
+      delay(1500);
     } else {
       isBLE = false;
-      sdFiles[1] = "ACTIVATE BLE";
+      BLEKeyboard.end();
+      sdFiles[2] = "ACTIVATE BLE";
+      display.setTextSize(1);
+      display.setCursor(5, 5);
+      display.println("BLE deactivated");
+      delay(1000);
     }
     break;
   case 4: // Keyboard Layouts
@@ -921,6 +947,9 @@ void mainOptions() {
   case 7: // Previous folder
     sdFiles[pathLen] = '\0';
     pathLen--;
+    break;
+  case 8: // BLE Scan & Connect
+    showBLEDeviceList();
     break;
   }
   return;
@@ -1093,6 +1122,170 @@ void getLang() {
     langFile.close();
     layout = new KeyboardLayout_US();
   }
+}
+
+// Add this class to create a callback for BLE scanning
+class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
+  void onResult(BLEAdvertisedDevice advertisedDevice) {
+    if (bleDeviceCount < MAX_BLE_DEVICES) {
+      // Only store devices with names
+      if (advertisedDevice.haveName()) {
+        String deviceName = advertisedDevice.getName().c_str();
+        String deviceAddress = advertisedDevice.getAddress().toString().c_str();
+        
+        // Check if device is already in the list
+        bool deviceExists = false;
+        for (int i = 0; i < bleDeviceCount; i++) {
+          if (bleDeviceAddresses[i] == deviceAddress) {
+            deviceExists = true;
+            break;
+          }
+        }
+        
+        if (!deviceExists) {
+          bleDeviceNames[bleDeviceCount] = deviceName;
+          bleDeviceAddresses[bleDeviceCount] = deviceAddress;
+          bleDeviceCount++;
+        }
+      }
+    }
+  }
+};
+
+// Function to scan for available BLE devices
+void scanForBLEDevices() {
+  display.fillScreen(BLACK);
+  display.setCursor(10, 10);
+  display.println("Scanning for BLE devices...");
+  
+  // Clear previous results
+  bleDeviceCount = 0;
+  for (int i = 0; i < MAX_BLE_DEVICES; i++) {
+    bleDeviceNames[i] = "";
+    bleDeviceAddresses[i] = "";
+  }
+  
+  BLEDevice::init("BadCard Scanner");
+  pBLEScan = BLEDevice::getScan();
+  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+  pBLEScan->setActiveScan(true);
+  pBLEScan->setInterval(100);
+  pBLEScan->setWindow(99);
+  
+  // Start scan
+  pBLEScan->start(scanTime, false);
+  
+  display.fillScreen(BLACK);
+  if (bleDeviceCount > 0) {
+    display.setCursor(10, 10);
+    display.println("Found " + String(bleDeviceCount) + " devices");
+    display.println("Select a device to connect:");
+  } else {
+    display.setCursor(10, 10);
+    display.println("No devices found.");
+    display.println("Press any key to return.");
+    while (true) {
+      M5Cardputer.update();
+      if (kb.isChange() && kb.isPressed()) {
+        return;
+      }
+    }
+  }
+}
+
+// Show the list of BLE devices and let the user select one
+void showBLEDeviceList() {
+  scanForBLEDevices();
+  
+  if (bleDeviceCount == 0) return;
+  
+  int deviceCursor = 0;
+  int screenDirection = 0;
+  int screenPosY = 0;
+  
+  display.fillScreen(BLACK);
+  for (int i = 0; i < bleDeviceCount; i++) {
+    display.setCursor(30, i * 20 + 10);
+    display.println(bleDeviceNames[i]);
+  }
+  
+  while (true) {
+    M5Cardputer.update();
+    if (kb.isChange()) {
+      display.setTextColor(BLACK);
+      int drawCursor = deviceCursor * 20 + 10;
+      
+      display.drawString(">", 10, drawCursor);
+
+      if (kb.isKeyPressed(';') && deviceCursor > 0) {
+        deviceCursor--;
+        
+        if (screenPosY > 0 && deviceCursor > 0) {
+          screenPosY--;
+          screenDirection = -1;
+        }
+      } else if (kb.isKeyPressed('.') && deviceCursor < bleDeviceCount - 1) {
+        deviceCursor++;
+        
+        if (deviceCursor * 20 >= display.height() - 20) {
+          screenPosY++;
+          screenDirection = 1;
+        }
+      }
+      
+      drawCursor = deviceCursor * 20 + 10;
+      if (deviceCursor * 20 > display.height() - 20) {
+        drawCursor = (display.height() - 20) - 15 + 10;
+      }
+
+      display.setTextColor(PURPLE);
+      display.drawString(">", 10, drawCursor);
+      
+      // Redraw device list with scrolling if needed
+      if (screenDirection != 0) {
+        display.fillRect(30, 0, display.width() - 30, display.height(), BLACK);
+        for (int i = 0; i < bleDeviceCount - screenPosY && i < display.height() / 20; i++) {
+          display.setCursor(30, i * 20 + 10);
+          display.println(bleDeviceNames[i + screenPosY]);
+        }
+        screenDirection = 0;
+      }
+      
+      // Enter key connects to selected device
+      if (kb.isKeyPressed(KEY_ENTER)) {
+        connectToBLEDevice(bleDeviceAddresses[deviceCursor]);
+        break;
+      }
+      
+      // ESC key cancels and returns to menu
+      if (kb.isKeyPressed(KEY_ESC)) {
+        break;
+      }
+    }
+  }
+}
+
+// Connect to a specific BLE device bypassing authentication
+void connectToBLEDevice(String deviceAddress) {
+  display.fillScreen(BLACK);
+  display.setCursor(10, 10);
+  display.println("Connecting to device...");
+  
+  // Initialize BLE with bypass authentication settings
+  BLEKeyboard.setSecurityMode(BLE_SECURITY_LOW);
+  BLEKeyboard.begin();
+  
+  // Set flag to indicate active connection mode
+  isBLE = true;
+  activeBLEConnection = true;
+  
+  // Update menu text
+  sdFiles[2] = "BLE ACTIVATED";
+  
+  display.setCursor(10, 50);
+  display.println("Connected! Ready to use.");
+  display.println("No authorization required.");
+  delay(1500);
 }
 
 void setup() {

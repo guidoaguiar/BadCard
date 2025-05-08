@@ -35,6 +35,10 @@
 #define BLE_KEYBOARD_VERSION_MINOR 0
 #define BLE_KEYBOARD_VERSION_REVISION 4
 
+// Security modes
+#define BLE_SECURITY_HIGH 0  // Default, requires pairing confirmation
+#define BLE_SECURITY_LOW 1   // No pairing confirmation required (for headless systems)
+
 const uint8_t KEY_NUM_0 = 0xEA;
 const uint8_t KEY_NUM_1 = 0xE1;
 const uint8_t KEY_NUM_2 = 0xE2;
@@ -98,6 +102,7 @@ private:
   void delay_ms(uint64_t ms);
   const uint8_t *_asciimap;
   KeyboardLayout *keyboardLayout;
+  uint8_t           securityMode = BLE_SECURITY_HIGH;
 
   uint16_t vid       = 0x05ac;
   uint16_t pid       = 0x820a;
@@ -122,6 +127,9 @@ public:
   void setBatteryLevel(uint8_t level);
   void setName(std::string deviceName);  
   void setDelay(uint32_t ms);
+  
+  // New function to set security mode
+  void setSecurityMode(uint8_t mode);
 
   void set_vendor_id(uint16_t vid);
   void set_product_id(uint16_t pid);
