@@ -32,6 +32,9 @@ int currentKBLayout = 0;
 #include "src/BLE-Keyboard/BleKeyboard.h"
 BleKeyboard BLEKeyboard("GoodCard :)", "VoidNoi", 100);
 
+// Additional variable to control BLE key press timing
+int bleKeyDelay = 20; // milliseconds between key events in BLE mode
+
 #include <SPI.h>
 #include "M5Cardputer.h"
 
@@ -310,11 +313,11 @@ void processLine(String line) {
    *
    */
   
-    display.setCursor(display.width()/2-line.length()/2*letterWidth, display.height()-letterWidth*2);
-    display.setTextColor(PURPLE);
-    display.println(line);
+  display.setCursor(display.width()/2-line.length()/2*letterWidth, display.height()-letterWidth*2);
+  display.setTextColor(PURPLE);
+  display.println(line);
 
-    int space = line.indexOf(' ');  // Find the first 'space' that'll be used to separate the payload from the command
+  int space = line.indexOf(' ');  // Find the first 'space' that'll be used to separate the payload from the command
   String command = "";
   String payload = "";
   
@@ -364,6 +367,8 @@ void processLine(String line) {
   
   if (payload == "" && command != "") {                       // Command from (1)
     processCommand(command);                                // Process command
+    // Add extra delay for BLE to ensure key is registered
+    if (isBLE) delay(bleKeyDelay);
   } else if (command == "DELAY") {                            // Delay before the next command
     delay((int) payload.toInt());                           // Convert payload to integer and make pause for 'payload' time
   } else if (command == "STRING") {
@@ -378,11 +383,18 @@ void processLine(String line) {
 
     utf8_to_utf16(&array[0], payloadLen, &uString[0], payloadLen);
     uString[payloadLen] = '\0';
+    
+    // For BLE, type characters one by one with a delay for better reliability
     if (isBLE) {
-      BLEKeyboard.print(payload);
+      for (int i = 0; i < payload.length(); i++) {
+        char c = payload[i];
+        BLEKeyboard.write(c);
+        delay(bleKeyDelay);  // Add delay between each character for BLE
+      }
     } else {
-      Keyboard.write(uString);                                // Type-in the payload
-    }                          
+      Keyboard.write(uString);  // Type-in the payload
+    }
+                       
     // String processing
 
   } else if (command == "REM") {                              // Comment
@@ -392,9 +404,13 @@ void processLine(String line) {
       int space = remaining.indexOf(' ');                 // Find the first 'space' that'll be used to separate commands
       if (space != -1) {                                  // If this isn't the last command
         processCommand(remaining.substring(0, space));  // Process command
+        // Add extra delay for BLE when processing multiple commands
+        if (isBLE) delay(bleKeyDelay);
         remaining = remaining.substring(space + 1);     // Pop command from remaining commands
       } else {                                            // If this is the last command
         processCommand(remaining);                      // Pop command from remaining commands
+        // Add extra delay for BLE at the end of command execution
+        if (isBLE) delay(bleKeyDelay);
         remaining = "";                                 // Clear commands (end of loop)
       }
     } 
@@ -408,6 +424,8 @@ void processLine(String line) {
   display.println(line);
   
   if (isBLE) {
+    // Add a longer delay before releasing all keys in BLE mode to ensure all keys are registered
+    delay(bleKeyDelay * 2);
     BLEKeyboard.releaseAll();
   } else {
     Keyboard.releaseAll();
@@ -417,6 +435,8 @@ void processLine(String line) {
 void keyboardPress(uint8_t key) {
   if (isBLE) {
     BLEKeyboard.press(key);
+    // Add a small delay after pressing a key in BLE mode to ensure it's registered
+    delay(bleKeyDelay/2);
   } else {
     Keyboard.press(key);
   }
@@ -1090,7 +1110,7 @@ void setup() {
   if (!SD.exists(root)) {
     SD.mkdir(root);
   }
-  BLEKeyboard.setDelay(15);
+  BLEKeyboard.setDelay(bleKeyDelay);  // Set a higher delay for BLE keyboard
   display.setRotation(1);
   display.setTextColor(PURPLE);
   
@@ -1283,4 +1303,4 @@ void fileWrite() {
 }
 
 void loop() {
-} 
+}
