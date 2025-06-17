@@ -336,7 +336,7 @@ void processLine(String line) {
   if (space == -1) {  // There is no space -> (1)
     if (
       line == "ENTER" ||
-      line == "MENU" || line == "APP" |
+      line == "MENU" || line == "APP" ||
       line == "DOWNARROW" || line == "DOWN" ||
       line == "LEFTARROW" || line == "LEFT" ||
       line == "RIGHTARROW" || line == "RIGHT" ||
@@ -385,13 +385,13 @@ void processLine(String line) {
     delay((int) payload.toInt());                           // Convert payload to integer and make pause for 'payload' time
   } else if (command == "STRING") {
     int payloadLen = payload.length();
-    unsigned char array[payloadLen];
+    unsigned char array[payloadLen + 1];
     for (int i = 0; i < payloadLen; i++) {
       array[i] = payload[i];
     }
     array[payloadLen] = '\0';
 
-    char16_t uString[payloadLen];
+    char16_t uString[payloadLen + 1];
 
     utf8_to_utf16(&array[0], payloadLen, &uString[0], payloadLen);
     uString[payloadLen] = '\0';
@@ -546,7 +546,7 @@ void insertLine(String file[], int y){
   for (int i = newFileLines; i > y; i--){
     file[i] = file[i-1];
   }
-  file[y] = '\0';
+  file[y] = "";
 }
 
 void insertChar(String file[], int y, int x, char letter){
@@ -562,7 +562,7 @@ void removeLine(String file[], int y){
   for (int i = y; i < newFileLines; i++) {
     file[i] = file[i+1];
   }
-  file[newFileLines] = '\0';
+  file[newFileLines] = "";
   cursorPosY--;
   newFileLines--;
 }
@@ -581,7 +581,7 @@ void saveFileChanges() {
   if (myFile) {
     for (int i = 0; i <= newFileLines; i++) {
       int textLen = fileText[i].length();
-      char charText[textLen];
+      char charText[textLen + 1];
       strcpy(charText, fileText[i].c_str());
 
       unsigned char unChar[textLen];
@@ -739,9 +739,9 @@ void kbLayoutsOptions() {
 
 template <typename T> void cleanArray(T array, int length) {
   for (int i = 0; i <= length; i++) {
-    array[i] = '\0';
+    array[i] = T();
   }
-	length = 0;
+        length = 0;
 }
 
 void handleFolders() {
