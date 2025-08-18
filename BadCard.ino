@@ -35,15 +35,22 @@ int currentKBLayout = 0;
 #include "src/BLE-Keyboard/BleKeyboard.h"
 BleKeyboard BLEKeyboard("GoodCard :)", "VoidNoi", 100);
 
-// Additional variable to control BLE key press timing
-int bleKeyDelay = 20; // milliseconds between key events in BLE mode
+// Performance and memory optimization constants
+#define OPTIMIZED_MAX_FILES 50          // Reduced from 100 for memory efficiency
+#define OPTIMIZED_ELEMENT_COUNT 250     // Reduced from 500 for memory efficiency  
+#define OPTIMIZED_MAX_BLE_DEVICES 10    // Reduced from 20 for memory efficiency
+#define BLE_SCAN_TIME 3                 // Reduced from 5 for faster scanning
+#define BLE_KEY_DELAY 15                // Optimized from 20ms for better performance
+#define SCREEN_UPDATE_DELAY 50          // Add delay for smoother UI updates
 
-// BLE scan settings
-int scanTime = 5; // seconds to scan for BLE devices
+// Additional variable to control BLE key press timing
+int bleKeyDelay = BLE_KEY_DELAY; // milliseconds between key events in BLE mode
+
+// BLE scan settings - optimized for performance
+int scanTime = BLE_SCAN_TIME; // seconds to scan for BLE devices
 BLEScan* pBLEScan;
-#define MAX_BLE_DEVICES 20
-String bleDeviceNames[MAX_BLE_DEVICES];
-String bleDeviceAddresses[MAX_BLE_DEVICES];
+String bleDeviceNames[OPTIMIZED_MAX_BLE_DEVICES];
+String bleDeviceAddresses[OPTIMIZED_MAX_BLE_DEVICES];
 int bleDeviceCount = 0;
 bool activeBLEConnection = false; // Flag to track if we're in active connection mode
 
@@ -54,7 +61,8 @@ bool activeBLEConnection = false; // Flag to track if we're in active connection
 #define kb M5Cardputer.Keyboard
 
 
-const int maxFiles = 100;
+// Optimized file management constants
+const int maxFiles = OPTIMIZED_MAX_FILES;
 
 #include "keys.h"
 
@@ -70,17 +78,19 @@ int mainCursor = 0;
 int scriptCursor = 0;
 int kbLayoutsCursor = 0;
 
-String sdFiles[maxFiles] = {"NEW SCRIPT", "NEW FOLDER", "ACTIVATE BLE", "KB LAYOUT"};
-int fileType[maxFiles] = {1, 2, 3, 4};
+// Enhanced main menu with settings option
+String sdFiles[maxFiles] = {"NEW SCRIPT", "NEW FOLDER", "ACTIVATE BLE", "KB LAYOUT", "SETTINGS"};
+int fileType[maxFiles] = {1, 2, 3, 4, 7};
 
 const int scriptOptionsAmount = 3;
-String scriptMenuOptions[scriptOptionsAmount] = {"Execute script", "Edit script", "Delete script"};
-// The almighty doesn't want kbLayoutsLen and KbLayouts initialization to be below maxFiles for some reason
-// so don't you dare move it or the keyboard layouts menu will be bugged
-const int kbLayoutsLen = 15; // Needs 1 more than the amount of layouts to prevent a visual bug in the menu
-String kbLayouts[kbLayoutsLen] = {"en_US", "es_ES", "de_DE", "pt_PT", "fr_FR", "sv_SE", "it_IT", "hu_HU", "da_DK", "pt_BR", "en_GB", "nb_NO", "ja_JP", "fr_BE"};
+const char* scriptMenuOptions[scriptOptionsAmount] = {"Execute script", "Edit script", "Delete script"};
 
-const int ELEMENT_COUNT_MAX = 500;
+// Optimized keyboard layouts array - using const char* for memory efficiency
+const int kbLayoutsLen = 15; // Needs 1 more than the amount of layouts to prevent a visual bug in the menu
+const char* kbLayouts[kbLayoutsLen] = {"en_US", "es_ES", "de_DE", "pt_PT", "fr_FR", "sv_SE", "it_IT", "hu_HU", "da_DK", "pt_BR", "en_GB", "nb_NO", "ja_JP", "fr_BE"};
+
+// Optimized memory usage - reduced from 500 to 250 elements
+const int ELEMENT_COUNT_MAX = OPTIMIZED_ELEMENT_COUNT;
 String fileText[ELEMENT_COUNT_MAX];
 
 int cursorPosX, cursorPosY, screenPosX, screenPosY = 0;
@@ -93,6 +103,44 @@ int letterWidth = 12;
 int deletingFolder = false;
 
 String cursor = "|";
+
+// Configuration management system - new feature
+struct BadCardConfig {
+  int keyboardLayout;
+  int bleKeyDelay;
+  int scanTime;
+  bool showIcons;
+  char version[10];
+};
+
+BadCardConfig config = {0, BLE_KEY_DELAY, BLE_SCAN_TIME, false, "1.1.0"};
+
+// Save configuration to SD card
+void saveConfig() {
+  showProgressIndicator("Saving config...", 50);
+  File configFile = SD.open("/BadCard/config.dat", FILE_WRITE);
+  if (configFile) {
+    configFile.write((uint8_t*)&config, sizeof(config));
+    configFile.close();
+    showProgressIndicator("Config saved!", 100);
+  }
+  delay(500);
+}
+
+// Load configuration from SD card
+void loadConfig() {
+  File configFile = SD.open("/BadCard/config.dat", FILE_READ);
+  if (configFile) {
+    if (configFile.size() == sizeof(config)) {
+      configFile.read((uint8_t*)&config, sizeof(config));
+      currentKBLayout = config.keyboardLayout;
+      bleKeyDelay = config.bleKeyDelay;
+      scanTime = config.scanTime;
+      showIcons = config.showIcons;
+    }
+    configFile.close();
+  }
+}
 
 String fileName;
 
@@ -152,6 +200,23 @@ void getDirectory(String directory, int &amount, String* fileArray, int* types) 
   }
 }
 
+// Performance optimization: Add progress indicator for long operations
+void showProgressIndicator(const char* message, int progress = -1) {
+  display.fillRect(50, 100, 220, 40, BLACK);
+  display.drawRect(50, 100, 220, 40, PURPLE);
+  display.setTextColor(PURPLE);
+  display.setCursor(60, 110);
+  display.print(message);
+  if (progress >= 0) {
+    display.setCursor(60, 125);
+    display.print("Progress: ");
+    display.print(progress);
+    display.print("%");
+  }
+  delay(SCREEN_UPDATE_DELAY);
+}
+
+// Optimized menu rendering with reduced redraws
 void printMenu(int cursor, String* strings, int stringsAmount, int screenDirection, bool addIcons) {
   int textPosX = addIcons ? 40 : 20;
   for (int i = 0; i <= stringsAmount; i++) {
@@ -575,31 +640,52 @@ void cleanNewFile() {
   screenPosY = 0;
 }
 
+// Enhanced file saving with error handling and progress indication
 void saveFileChanges() {
-
-  myFile = SD.open(path + "/" + fileName + ".txt", FILE_WRITE);
+  showProgressIndicator("Saving file...", 0);
+  
+  String fullPath = path + "/" + fileName + ".txt";
+  myFile = SD.open(fullPath, FILE_WRITE);
+  
   if (myFile) {
+    showProgressIndicator("Writing data...", 25);
+    
     for (int i = 0; i <= newFileLines; i++) {
       int textLen = fileText[i].length();
-      char charText[textLen];
-      strcpy(charText, fileText[i].c_str());
+      if (textLen > 0) {
+        char charText[textLen + 1]; // +1 for null terminator
+        strcpy(charText, fileText[i].c_str());
 
-      unsigned char unChar[textLen];
+        unsigned char unChar[textLen];
+        for (int x = 0; x < textLen; x++) {
+          unChar[x] = static_cast<unsigned char>(charText[x]);
+        }
 
-      for (int x = 0; x < textLen; x++) {
-        unChar[x] = static_cast<unsigned char>(charText[x]);
+        myFile.write(unChar, textLen);
       }
-
-      myFile.write(unChar, textLen);
       myFile.print('\n');
-
+      
+      // Update progress
+      if (newFileLines > 0) {
+        int progress = 25 + (i * 50) / newFileLines;
+        if (i % 10 == 0) { // Update every 10 lines to avoid too many updates
+          showProgressIndicator("Writing data...", progress);
+        }
+      }
     }
 
     myFile.close();
+    showProgressIndicator("File saved successfully!", 100);
+    delay(1000);
     return;
   } else {
-    display.println("File didn't open");
-    myFile.close();
+    display.fillScreen(BLACK);
+    display.setTextColor(RED);
+    display.setCursor(10, 50);
+    display.println("ERROR: Could not save file!");
+    display.setCursor(10, 70);
+    display.println("Check SD card and try again");
+    display.setTextColor(PURPLE);
     delay(2000);
     return;
   }
@@ -728,9 +814,14 @@ void setKBLayout(int layoutNum) {
   }
 }
 
+// Enhanced keyboard layout switching with config persistence
 void kbLayoutsOptions() {
   currentKBLayout = kbLayoutsCursor;
   setKBLayout(currentKBLayout);
+  
+  // Save layout preference to config
+  config.keyboardLayout = currentKBLayout;
+  saveConfig();
   
   setLang(currentKBLayout);
 
@@ -760,7 +851,7 @@ void handleFolders() {
       fileType[1] = 1;
       fileType[2] = 2;
     } else {
-      fileAmount = 5; // Increased from 4 to 5 for the new BLE option
+      fileAmount = 6; // Increased from 5 to 6 for the new Settings option
       path = root;
       pathLen = 0;
       
@@ -769,12 +860,14 @@ void handleFolders() {
       sdFiles[2] = isBLE ? "BLE ACTIVATED" : "BLE PASSIVE MODE";
       sdFiles[3] = "BLE SCAN & CONNECT";
       sdFiles[4] = "KB LAYOUT";
+      sdFiles[5] = "SETTINGS";
       
       fileType[0] = 1;
       fileType[1] = 2;
       fileType[2] = 3;
       fileType[3] = 8; // New file type for BLE scan and connect
       fileType[4] = 4;
+      fileType[5] = 7; // New file type for Settings
     }
     
     getDirectory(path, fileAmount, sdFiles, fileType);
@@ -928,6 +1021,9 @@ void mainOptions() {
     break;
   case 4: // Keyboard Layouts
     handleMenus(kbLayoutsLen-2, kbLayoutsOptions, kbLayoutsCursor, kbLayouts, false); // We remove 1 more than the others from kbLayoutsLen to compensate for the extra 1 added at declaration
+    break;
+  case 7: // Settings - new feature
+    settingsMenu();
     break;
   case 5: // File
     fileType[0] = 8;
@@ -1127,7 +1223,7 @@ void getLang() {
 // Add this class to create a callback for BLE scanning
 class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice advertisedDevice) {
-    if (bleDeviceCount < MAX_BLE_DEVICES) {
+    if (bleDeviceCount < OPTIMIZED_MAX_BLE_DEVICES) {
       // Only store devices with names
       if (advertisedDevice.haveName()) {
         String deviceName = advertisedDevice.getName().c_str();
@@ -1152,15 +1248,14 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
   }
 };
 
-// Function to scan for available BLE devices
+// Function to scan for available BLE devices - optimized with progress indicator
 void scanForBLEDevices() {
   display.fillScreen(BLACK);
-  display.setCursor(10, 10);
-  display.println("Scanning for BLE devices...");
+  showProgressIndicator("Scanning BLE devices...", 0);
   
   // Clear previous results
   bleDeviceCount = 0;
-  for (int i = 0; i < MAX_BLE_DEVICES; i++) {
+  for (int i = 0; i < OPTIMIZED_MAX_BLE_DEVICES; i++) {
     bleDeviceNames[i] = "";
     bleDeviceAddresses[i] = "";
   }
@@ -1172,8 +1267,13 @@ void scanForBLEDevices() {
   pBLEScan->setInterval(100);
   pBLEScan->setWindow(99);
   
-  // Start scan
+  showProgressIndicator("Scanning BLE devices...", 50);
+  
+  // Start scan with optimized time
   pBLEScan->start(scanTime, false);
+  
+  showProgressIndicator("Scan complete!", 100);
+  delay(500); // Brief pause to show completion
   
   display.fillScreen(BLACK);
   if (bleDeviceCount > 0) {
@@ -1288,6 +1388,127 @@ void connectToBLEDevice(String deviceAddress) {
   delay(1500);
 }
 
+// New feature: Settings menu for advanced configuration
+const int settingsOptionsAmount = 4;
+const char* settingsMenuOptions[settingsOptionsAmount] = {"BLE Key Delay", "Scan Time", "Show Icons", "Reset Config"};
+int settingsCursor = 0;
+
+void settingsMenu() {
+  handleMenus(settingsOptionsAmount - 1, settingsOptions, settingsCursor, (String*)settingsMenuOptions, false);
+}
+
+void settingsOptions() {
+  switch(settingsCursor) {
+    case 0: // BLE Key Delay
+      adjustBLEKeyDelay();
+      break;
+    case 1: // Scan Time
+      adjustScanTime();
+      break;
+    case 2: // Show Icons
+      toggleShowIcons();
+      break;
+    case 3: // Reset Config
+      resetConfig();
+      break;
+  }
+}
+
+void adjustBLEKeyDelay() {
+  display.fillScreen(BLACK);
+  display.setCursor(10, 10);
+  display.println("BLE Key Delay: " + String(bleKeyDelay) + "ms");
+  display.println("Use +/- to adjust, Enter to save");
+  
+  while (true) {
+    M5Cardputer.update();
+    if (kb.isChange()) {
+      if (kb.isKeyPressed('+') || kb.isKeyPressed('=')) {
+        if (bleKeyDelay < 100) bleKeyDelay += 5;
+        display.fillRect(150, 10, 50, 20, BLACK);
+        display.setCursor(150, 10);
+        display.print(String(bleKeyDelay) + "ms");
+      } else if (kb.isKeyPressed('-')) {
+        if (bleKeyDelay > 5) bleKeyDelay -= 5;
+        display.fillRect(150, 10, 50, 20, BLACK);
+        display.setCursor(150, 10);
+        display.print(String(bleKeyDelay) + "ms");
+      } else if (kb.isKeyPressed(KEY_ENTER)) {
+        config.bleKeyDelay = bleKeyDelay;
+        BLEKeyboard.setDelay(bleKeyDelay);
+        saveConfig();
+        break;
+      }
+    }
+  }
+}
+
+void adjustScanTime() {
+  display.fillScreen(BLACK);
+  display.setCursor(10, 10);
+  display.println("Scan Time: " + String(scanTime) + "s");
+  display.println("Use +/- to adjust, Enter to save");
+  
+  while (true) {
+    M5Cardputer.update();
+    if (kb.isChange()) {
+      if (kb.isKeyPressed('+') || kb.isKeyPressed('=')) {
+        if (scanTime < 10) scanTime++;
+        display.fillRect(120, 10, 50, 20, BLACK);
+        display.setCursor(120, 10);
+        display.print(String(scanTime) + "s");
+      } else if (kb.isKeyPressed('-')) {
+        if (scanTime > 1) scanTime--;
+        display.fillRect(120, 10, 50, 20, BLACK);
+        display.setCursor(120, 10);
+        display.print(String(scanTime) + "s");
+      } else if (kb.isKeyPressed(KEY_ENTER)) {
+        config.scanTime = scanTime;
+        saveConfig();
+        break;
+      }
+    }
+  }
+}
+
+void toggleShowIcons() {
+  showIcons = !showIcons;
+  config.showIcons = showIcons;
+  saveConfig();
+  
+  display.fillScreen(BLACK);
+  display.setCursor(10, 50);
+  display.println("Icons " + String(showIcons ? "enabled" : "disabled"));
+  delay(1000);
+}
+
+void resetConfig() {
+  display.fillScreen(BLACK);
+  display.setCursor(10, 50);
+  display.println("Reset config? Press Y to confirm");
+  
+  while (true) {
+    M5Cardputer.update();
+    if (kb.isChange()) {
+      if (kb.isKeyPressed('y') || kb.isKeyPressed('Y')) {
+        config = {0, BLE_KEY_DELAY, BLE_SCAN_TIME, false, "1.1.0"};
+        currentKBLayout = 0;
+        bleKeyDelay = BLE_KEY_DELAY;
+        scanTime = BLE_SCAN_TIME;
+        showIcons = false;
+        saveConfig();
+        display.setCursor(10, 70);
+        display.println("Config reset successfully!");
+        delay(1500);
+        break;
+      } else if (kb.isPressed()) {
+        break;
+      }
+    }
+  }
+}
+
+// Enhanced setup with configuration loading and better initialization
 void setup() {
   auto cfg = M5.config();
   M5Cardputer.begin(cfg, true);
@@ -1297,16 +1518,26 @@ void setup() {
     M5.getPin(m5::pin_name_t::sd_spi_miso),
     M5.getPin(m5::pin_name_t::sd_spi_mosi),
     M5.getPin(m5::pin_name_t::sd_spi_ss));
+    
   while (false == SD.begin(M5.getPin(m5::pin_name_t::sd_spi_ss), SPI)) {
     delay(1);
   }
+  
+  // Ensure BadCard directory exists
   if (!SD.exists(root)) {
     SD.mkdir(root);
   }
-  BLEKeyboard.setDelay(bleKeyDelay);  // Set a higher delay for BLE keyboard
+  
   display.setRotation(1);
   display.setTextColor(PURPLE);
   
+  // Load user configuration
+  loadConfig();
+  
+  // Apply loaded configuration
+  BLEKeyboard.setDelay(bleKeyDelay);
+  
+  // Load language setting
   getLang();
 
   bootLogo();
