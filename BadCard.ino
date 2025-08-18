@@ -297,58 +297,113 @@ void handleMenus(int options, void (*executeFunction)(), int& cursor, String* st
   }
 }
 
+// Enhanced script execution with progress tracking and error handling
 void executeScript() {
   display.fillScreen(BLACK);
-  display.setCursor(1,1);
-  display.println("Executing function");
+  showProgressIndicator("Preparing script...", 0);
+  
   String fileName = path + "/" + sdFiles[mainCursor];
 
-  if (SD.exists(fileName)) {
+  if (!SD.exists(fileName)) {
+    display.fillScreen(BLACK);
+    display.setTextColor(WHITE);
+    display.setCursor(10, 50);
+    display.println("ERROR: Script file not found!");
+    display.setTextColor(PURPLE);
+    delay(2000);
+    return;
+  }
+
+  // Initialize keyboard based on connection type
+  if (!isBLE) {
+    USB.begin();
+    Keyboard.begin(layout);
+    showProgressIndicator("USB keyboard ready", 25);
+  } else {
+    BLEKeyboard.setLayout(layout);
+    showProgressIndicator("BLE keyboard ready", 25);
+  }
+
+  delay(500);
+  
+  showProgressIndicator("Opening script file...", 50);
+
+  // Open the file for reading
+  myFile = SD.open(fileName, FILE_READ);
+  
+  if (!myFile) {
+    display.fillScreen(BLACK);
+    display.setTextColor(WHITE);
+    display.setCursor(10, 50);
+    display.println("ERROR: Cannot open script file!");
+    display.setTextColor(PURPLE);
+    delay(2000);
+    return;
+  }
+
+  showProgressIndicator("Executing script...", 75);
+  
+  // Track execution progress
+  int fileSize = myFile.size();
+  int bytesProcessed = 0;
+  int lineCount = 0;
+  
+  // Process lines from file with LF EOL (0x0a), not CR+LF (0x0a+0x0d)
+  String line = "";
+  while (myFile.available()) {
+    char c = myFile.read();
+    bytesProcessed++;
     
-    if (!isBLE) {
-      USB.begin();
-      Keyboard.begin(layout);
-    } else {
-      BLEKeyboard.setLayout(layout);
+    // Update progress every 100 bytes to avoid too many updates
+    if (bytesProcessed % 100 == 0 && fileSize > 0) {
+      int progress = 75 + (bytesProcessed * 20) / fileSize;
+      showProgressIndicator("Executing...", progress);
     }
 
-    delay(1000);
-    
-    display.println(fileName);
+    if ((int) c == 0x0a) {         // Line ending (LF) reached
+      lineCount++;
+      processLine(line);           // Process script line
+      line = "";                   // Clean the line to process next
+    } else if((int) c != 0x0d) {   // If char isn't a carriage return (CR)
+      line += c;                   // Put char into line
+    }
+  }
 
-    // Open the file for reading (fill myFile with char buffer)
-    myFile = SD.open(fileName, FILE_READ);
-    
-    // Check if the file has successfully been opened and continue
-    if (myFile) {
-      // Initialize control over keyboard
-        
-      // Process lines from file with LF EOL (0x0a), not CR+LF (0x0a+0x0d)
-      String line = "";
-      while (myFile.available()) {  // For each char in buffer
-        // Read char from buffer
-        char c = myFile.read();
-    
-        // Process char
-        if ((int) c == 0x0a){         // Line ending (LF) reached
-          processLine(line);        // Process script line by reading command and payload
-          line = "";                // Clean the line to process next
-        } else if((int) c != 0x0d) {  // If char isn't a carriage return (CR)
-          line += c;                // Put char into line
-        }
-      }
+  // Process any remaining line without LF
+  if (line.length() > 0) {
+    processLine(line);
+    lineCount++;
+  }
 
-      // Close the file
-      myFile.close();
-    } 
-      // End control over keyboard
-      if (isBLE) {
-        BLEKeyboard.end();
-      } else {
-        Keyboard.end();
-      }
-      return;
-    } 
+  myFile.close();
+  
+  // End keyboard control
+  if (isBLE) {
+    BLEKeyboard.end();
+  } else {
+    Keyboard.end();
+  }
+  
+  showProgressIndicator("Script completed!", 100);
+  delay(1000);
+  
+  // Show execution summary
+  display.fillScreen(BLACK);
+  display.setCursor(10, 30);
+  display.println("Execution Summary:");
+  display.setCursor(10, 50);
+  display.println("Lines processed: " + String(lineCount));
+  display.setCursor(10, 70);
+  display.println("Bytes processed: " + String(bytesProcessed));
+  display.setCursor(10, 90);
+  display.println("Press any key to continue");
+  
+  while (true) {
+    M5Cardputer.update();
+    if (kb.isChange() && kb.isPressed()) {
+      break;
+    }
+  }
 }
 
 void processLine(String line) {
@@ -680,7 +735,7 @@ void saveFileChanges() {
     return;
   } else {
     display.fillScreen(BLACK);
-    display.setTextColor(RED);
+    display.setTextColor(WHITE);
     display.setCursor(10, 50);
     display.println("ERROR: Could not save file!");
     display.setCursor(10, 70);
@@ -877,7 +932,7 @@ void handleFolders() {
     
     mainCursor = 0;
     deletingFolder = false;
-    handleMenus(fileAmount-1, mainOptions, mainCursor, sdFiles, true);
+    handleMenus(fileAmount-1, mainOptions, mainCursor, sdFiles, showIcons);
   }
 }
 
@@ -1029,7 +1084,7 @@ void mainOptions() {
     fileType[0] = 8;
     fileType[1] = 9;
     fileType[2] = 10;
-    handleMenus(scriptOptionsAmount-1, scriptOptions, scriptCursor, scriptMenuOptions, true);
+    handleMenus(scriptOptionsAmount-1, scriptOptions, scriptCursor, scriptMenuOptions, showIcons);
     break;
   case 6: // Folder
     // If G0 button is pressed show delete folder menu
@@ -1365,27 +1420,70 @@ void showBLEDeviceList() {
   }
 }
 
-// Connect to a specific BLE device bypassing authentication
+// Enhanced BLE connection with improved feedback and status checking
 void connectToBLEDevice(String deviceAddress) {
-  display.fillScreen(BLACK);
-  display.setCursor(10, 10);
-  display.println("Connecting to device...");
+  showProgressIndicator("Initializing BLE...", 0);
   
   // Initialize BLE with bypass authentication settings
   BLEKeyboard.setSecurityMode(BLE_SECURITY_LOW);
+  
+  showProgressIndicator("Starting BLE service...", 25);
   BLEKeyboard.begin();
   
-  // Set flag to indicate active connection mode
-  isBLE = true;
-  activeBLEConnection = true;
+  showProgressIndicator("Connecting to device...", 50);
   
-  // Update menu text
-  sdFiles[2] = "BLE ACTIVATED";
+  // Wait for connection with timeout
+  int connectionAttempts = 0;
+  const int maxAttempts = 10;
   
-  display.setCursor(10, 50);
-  display.println("Connected! Ready to use.");
-  display.println("No authorization required.");
-  delay(1500);
+  while (!BLEKeyboard.isConnected() && connectionAttempts < maxAttempts) {
+    delay(500);
+    connectionAttempts++;
+    showProgressIndicator("Connecting...", 50 + (connectionAttempts * 5));
+  }
+  
+  if (BLEKeyboard.isConnected()) {
+    // Connection successful
+    isBLE = true;
+    activeBLEConnection = true;
+    sdFiles[2] = "BLE ACTIVATED";
+    
+    showProgressIndicator("Connected successfully!", 100);
+    delay(500);
+    
+    display.fillScreen(BLACK);
+    display.setTextColor(WHITE);
+    display.setCursor(10, 30);
+    display.println("BLE CONNECTION ESTABLISHED");
+    display.setTextColor(PURPLE);
+    display.setCursor(10, 50);
+    display.println("Device: " + deviceAddress);
+    display.setCursor(10, 70);
+    display.println("Mode: Headless (No Auth)");
+    display.setCursor(10, 90);
+    display.println("Ready to execute scripts!");
+    delay(2000);
+  } else {
+    // Connection failed
+    display.fillScreen(BLACK);
+    display.setTextColor(WHITE);
+    display.setCursor(10, 30);
+    display.println("CONNECTION FAILED");
+    display.setTextColor(PURPLE);
+    display.setCursor(10, 50);
+    display.println("Device may be out of range");
+    display.setCursor(10, 70);
+    display.println("or not accepting connections");
+    display.setCursor(10, 90);
+    display.println("Press any key to retry");
+    
+    while (true) {
+      M5Cardputer.update();
+      if (kb.isChange() && kb.isPressed()) {
+        break;
+      }
+    }
+  }
 }
 
 // New feature: Settings menu for advanced configuration
@@ -1583,6 +1681,31 @@ void saveFile() {
 
 
 void fileWrite() {
+  // Add status bar for better user experience
+  auto drawStatusBar = [&]() {
+    display.fillRect(0, display.height() - 20, display.width(), 20, BLACK);
+    display.drawRect(0, display.height() - 20, display.width(), 20, PURPLE);
+    display.setTextColor(WHITE);
+    display.setCursor(5, display.height() - 15);
+    
+    if (creatingFile) {
+      display.print("NEW");
+    } else if (editingFile) {
+      display.print("EDIT");
+    }
+    
+    display.print(" | Line: " + String(cursorPosY + 1));
+    display.print(" Col: " + String(cursorPosX + 1));
+    display.print(" | Lines: " + String(newFileLines + 1));
+    
+    // Show memory usage
+    int usedMemory = (newFileLines * 100) / ELEMENT_COUNT_MAX;
+    display.setCursor(display.width() - 60, display.height() - 15);
+    display.print("Mem: " + String(usedMemory) + "%");
+    
+    display.setTextColor(PURPLE);
+  };
+
   while(true) {
     M5Cardputer.update();
     if (kb.isChange()) {
@@ -1720,6 +1843,9 @@ void fileWrite() {
         for (int i = 0; i<= newFileLines; i++) {
           display.drawString(fileText[i+screenPosY], screenPosX, i*letterHeight);
         }
+        
+        // Draw status bar for enhanced user experience
+        drawStatusBar();
       }
     }
   }
