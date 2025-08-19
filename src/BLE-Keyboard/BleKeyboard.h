@@ -29,7 +29,6 @@
 #endif // USE_NIMBLE
 
 #include "Print.h"
-#include "ble_keyboard_errors.h"
 
 #define BLE_KEYBOARD_VERSION "0.0.4"
 #define BLE_KEYBOARD_VERSION_MAJOR 0
