@@ -22,8 +22,20 @@
   #define LOG_TAG ""
 #else
   #include "esp_log.h"
-  static const char* LOG_TAG = "BLEDevice";
+  static const char* LOG_TAG = "BLEKeyboard";
 #endif
+
+// BLE error logging functionality
+static bool logErrors = true;
+static void logBLEError(const char* operation, const char* error) {
+  if (logErrors) {
+    ESP_LOGE(LOG_TAG, "[BLE_ERROR] %s failed: %s", operation, error);
+  }
+}
+
+static void logBLEInfo(const char* operation, const char* info) {
+  ESP_LOGI(LOG_TAG, "[BLE_INFO] %s: %s", operation, info);
+}
 
 
 // Report IDs:
@@ -105,14 +117,55 @@ BleKeyboard::BleKeyboard(std::string deviceName, std::string deviceManufacturer,
 
 void BleKeyboard::begin(void)
 {
-  BLEDevice::init(deviceName);
+  logBLEInfo("begin", "Initializing BLE keyboard");
+  
+  // Initialize BLE device with error checking
+  try {
+    BLEDevice::init(deviceName);
+    logBLEInfo("BLEDevice::init", "BLE device initialized successfully");
+  } catch (...) {
+    logBLEError("BLEDevice::init", "Failed to initialize BLE device");
+    return;
+  }
+  
+  // Create BLE server with error checking
   BLEServer* pServer = BLEDevice::createServer();
+  if (pServer == nullptr) {
+    logBLEError("createServer", "Failed to create BLE server");
+    return;
+  }
+  logBLEInfo("createServer", "BLE server created successfully");
+  
   pServer->setCallbacks(this);
 
-  hid = new BLEHIDDevice(pServer);
-  inputKeyboard = hid->inputReport(KEYBOARD_ID);  // <-- input REPORTID from report map
-  outputKeyboard = hid->outputReport(KEYBOARD_ID);
-  inputMediaKeys = hid->inputReport(MEDIA_KEYS_ID);
+  // Create HID device with error checking
+  try {
+    hid = new BLEHIDDevice(pServer);
+    if (hid == nullptr) {
+      logBLEError("BLEHIDDevice", "Failed to allocate HID device");
+      return;
+    }
+    logBLEInfo("BLEHIDDevice", "HID device created successfully");
+  } catch (...) {
+    logBLEError("BLEHIDDevice", "Exception during HID device creation");
+    return;
+  }
+  
+  // Create input/output reports with error checking
+  try {
+    inputKeyboard = hid->inputReport(KEYBOARD_ID);
+    outputKeyboard = hid->outputReport(KEYBOARD_ID);
+    inputMediaKeys = hid->inputReport(MEDIA_KEYS_ID);
+    
+    if (inputKeyboard == nullptr || outputKeyboard == nullptr || inputMediaKeys == nullptr) {
+      logBLEError("inputReport", "Failed to create input/output reports");
+      return;
+    }
+    logBLEInfo("inputReport", "Input/output reports created successfully");
+  } catch (...) {
+    logBLEError("inputReport", "Exception during report creation");
+    return;
+  }
 
   outputKeyboard->setCallbacks(this);
 
@@ -123,54 +176,108 @@ void BleKeyboard::begin(void)
 
   #if defined(USE_NIMBLE)
   // Apply security settings based on mode
-  if (securityMode == BLE_SECURITY_HIGH) {
-    // Default secure mode - requires pairing confirmation
-    BLEDevice::setSecurityAuth(true, true, true);
-    BLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_YESNO); // Display with Yes/No input
-  } else {
-    // Lower security mode - no input/output pairing requirements
-    // This allows connections without user confirmation
-    BLEDevice::setSecurityAuth(true, false, false); // bonding=true, mitm=false, sc=false
-    BLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT); // No input, no output capability
+  try {
+    if (securityMode == BLE_SECURITY_HIGH) {
+      // Default secure mode - requires pairing confirmation
+      BLEDevice::setSecurityAuth(true, true, true);
+      BLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_YESNO);
+      logBLEInfo("security", "High security mode enabled");
+    } else {
+      // Lower security mode - no input/output pairing requirements
+      BLEDevice::setSecurityAuth(true, false, false);
+      BLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
+      logBLEInfo("security", "Low security mode enabled");
+    }
+  } catch (...) {
+    logBLEError("setSecurityAuth", "Failed to set security configuration");
+    return;
   }
   #else
-  BLESecurity* pSecurity = new BLESecurity();
-  
-  if (securityMode == BLE_SECURITY_HIGH) {
-    // Default secure mode - requires pairing confirmation
-    pSecurity->setAuthenticationMode(ESP_LE_AUTH_REQ_SC_MITM_BOND);
-    pSecurity->setCapability(ESP_IO_CAP_IO); // Display with Yes/No capability
-    pSecurity->setKeySize(16);
-  } else {
-    // Lower security mode - no input/output pairing requirements
-    // This allows connections without user confirmation
-    pSecurity->setAuthenticationMode(ESP_LE_AUTH_BOND);
-    pSecurity->setCapability(ESP_IO_CAP_NONE);
-    pSecurity->setKeySize(16);
+  BLESecurity* pSecurity = nullptr;
+  try {
+    pSecurity = new BLESecurity();
+    if (pSecurity == nullptr) {
+      logBLEError("BLESecurity", "Failed to allocate security object");
+      return;
+    }
+    
+    if (securityMode == BLE_SECURITY_HIGH) {
+      // Default secure mode - requires pairing confirmation
+      pSecurity->setAuthenticationMode(ESP_LE_AUTH_REQ_SC_MITM_BOND);
+      pSecurity->setCapability(ESP_IO_CAP_IO);
+      pSecurity->setKeySize(16);
+      logBLEInfo("security", "High security mode configured");
+    } else {
+      // Lower security mode - no input/output pairing requirements
+      pSecurity->setAuthenticationMode(ESP_LE_AUTH_BOND);
+      pSecurity->setCapability(ESP_IO_CAP_NONE);
+      pSecurity->setKeySize(16);
+      logBLEInfo("security", "Low security mode configured");
+    }
+  } catch (...) {
+    logBLEError("BLESecurity", "Exception during security configuration");
+    if (pSecurity != nullptr) {
+      delete pSecurity;
+    }
+    return;
   }
 #endif // USE_NIMBLE
 
-  hid->reportMap((uint8_t*)_hidReportDescriptor, sizeof(_hidReportDescriptor));
-  hid->startServices();
+  // Configure HID report map and start services
+  try {
+    hid->reportMap((uint8_t*)_hidReportDescriptor, sizeof(_hidReportDescriptor));
+    hid->startServices();
+    logBLEInfo("startServices", "HID services started successfully");
+  } catch (...) {
+    logBLEError("startServices", "Failed to start HID services");
+    return;
+  }
 
   onStarted(pServer);
 
-  advertising = pServer->getAdvertising();
-  advertising->setAppearance(HID_KEYBOARD);
-  advertising->addServiceUUID(hid->hidService()->getUUID());
-  advertising->setScanResponse(false);
-  advertising->start();
-  hid->setBatteryLevel(batteryLevel);
-
-  ESP_LOGI(LOG_TAG, "Advertising started with security mode: %d", securityMode);
+  // Start advertising with error checking
+  try {
+    advertising = pServer->getAdvertising();
+    if (advertising == nullptr) {
+      logBLEError("getAdvertising", "Failed to get advertising object");
+      return;
+    }
+    
+    advertising->setAppearance(HID_KEYBOARD);
+    advertising->addServiceUUID(hid->hidService()->getUUID());
+    advertising->setScanResponse(false);
+    advertising->start();
+    
+    hid->setBatteryLevel(batteryLevel);
+    
+    logBLEInfo("advertising", "BLE advertising started successfully");
+    ESP_LOGI(LOG_TAG, "Advertising started with security mode: %d", securityMode);
+  } catch (...) {
+    logBLEError("advertising", "Failed to start advertising");
+    return;
+  }
 }
 
 void BleKeyboard::setLayout(KeyboardLayout *layout) {
   if (layout != nullptr) {
     keyboardLayout = layout;
     _asciimap = layout->getKeymap();
+    logBLEInfo("setLayout", "Custom keyboard layout set successfully");
   } else {
-    layout = new KeyboardLayout_US();
+    // Only create new layout if we don't already have one to prevent memory leaks
+    if (keyboardLayout == nullptr) {
+      try {
+        keyboardLayout = new KeyboardLayout_US();
+        if (keyboardLayout != nullptr) {
+          _asciimap = keyboardLayout->getKeymap();
+          logBLEInfo("setLayout", "Default US keyboard layout created");
+        } else {
+          logBLEError("setLayout", "Failed to allocate default keyboard layout");
+        }
+      } catch (...) {
+        logBLEError("setLayout", "Exception during keyboard layout creation");
+      }
+    }
   }
 }
 
@@ -218,30 +325,71 @@ void BleKeyboard::setSecurityMode(uint8_t mode) {
   this->securityMode = mode;
 }
 
+void BleKeyboard::enableErrorLogging(bool enable) {
+  logErrors = enable;
+  if (enable) {
+    logBLEInfo("enableErrorLogging", "BLE error logging enabled");
+  } else {
+    ESP_LOGI(LOG_TAG, "[BLE_INFO] enableErrorLogging: BLE error logging disabled");
+  }
+}
+
 void BleKeyboard::sendReport(BLEKeyReport* keys)
 {
-  if (this->isConnected())
-  {
+  if (!this->isConnected()) {
+    logBLEError("sendReport", "Cannot send keyboard report - device not connected");
+    return;
+  }
+  
+  if (keys == nullptr) {
+    logBLEError("sendReport", "Cannot send keyboard report - null keys parameter");
+    return;
+  }
+  
+  if (this->inputKeyboard == nullptr) {
+    logBLEError("sendReport", "Cannot send keyboard report - inputKeyboard is null");
+    return;
+  }
+  
+  try {
     this->inputKeyboard->setValue((uint8_t*)keys, sizeof(BLEKeyReport));
     this->inputKeyboard->notify();
+    
 #if defined(USE_NIMBLE)        
-    // vTaskDelay(delayTicks);
     this->delay_ms(_delay_ms);
 #endif // USE_NIMBLE
-  }	
+  } catch (...) {
+    logBLEError("sendReport", "Exception occurred while sending keyboard report");
+  }
 }
 
 void BleKeyboard::sendReport(MediaKeyReport* keys)
 {
-  if (this->isConnected())
-  {
+  if (!this->isConnected()) {
+    logBLEError("sendReport", "Cannot send media key report - device not connected");
+    return;
+  }
+  
+  if (keys == nullptr) {
+    logBLEError("sendReport", "Cannot send media key report - null keys parameter");
+    return;
+  }
+  
+  if (this->inputMediaKeys == nullptr) {
+    logBLEError("sendReport", "Cannot send media key report - inputMediaKeys is null");
+    return;
+  }
+  
+  try {
     this->inputMediaKeys->setValue((uint8_t*)keys, sizeof(MediaKeyReport));
     this->inputMediaKeys->notify();
+    
 #if defined(USE_NIMBLE)        
-    //vTaskDelay(delayTicks);
     this->delay_ms(_delay_ms);
 #endif // USE_NIMBLE
-  }	
+  } catch (...) {
+    logBLEError("sendReport", "Exception occurred while sending media key report");
+  }
 }
 
 uint8_t USBPutChar(uint8_t c);
@@ -423,30 +571,56 @@ size_t BleKeyboard::write(const uint8_t *buffer, size_t size) {
 
 void BleKeyboard::onConnect(BLEServer* pServer) {
   this->connected = true;
+  logBLEInfo("onConnect", "BLE client connected successfully");
 
 #if !defined(USE_NIMBLE)
-
-  BLE2902* desc = (BLE2902*)this->inputKeyboard->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
-  desc->setNotifications(true);
-  desc = (BLE2902*)this->inputMediaKeys->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
-  desc->setNotifications(true);
-
+  try {
+    BLE2902* desc = (BLE2902*)this->inputKeyboard->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
+    if (desc != nullptr) {
+      desc->setNotifications(true);
+    } else {
+      logBLEError("onConnect", "Failed to get keyboard descriptor");
+    }
+    
+    desc = (BLE2902*)this->inputMediaKeys->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
+    if (desc != nullptr) {
+      desc->setNotifications(true);
+    } else {
+      logBLEError("onConnect", "Failed to get media keys descriptor");
+    }
+    
+    logBLEInfo("onConnect", "Notification descriptors configured");
+  } catch (...) {
+    logBLEError("onConnect", "Exception during connection setup");
+  }
 #endif // !USE_NIMBLE
-
 }
 
 void BleKeyboard::onDisconnect(BLEServer* pServer) {
   this->connected = false;
+  logBLEInfo("onDisconnect", "BLE client disconnected");
 
 #if !defined(USE_NIMBLE)
+  try {
+    BLE2902* desc = (BLE2902*)this->inputKeyboard->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
+    if (desc != nullptr) {
+      desc->setNotifications(false);
+    } else {
+      logBLEError("onDisconnect", "Failed to get keyboard descriptor during disconnect");
+    }
+    
+    desc = (BLE2902*)this->inputMediaKeys->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
+    if (desc != nullptr) {
+      desc->setNotifications(false);
+    } else {
+      logBLEError("onDisconnect", "Failed to get media keys descriptor during disconnect");
+    }
 
-  BLE2902* desc = (BLE2902*)this->inputKeyboard->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
-  desc->setNotifications(false);
-  desc = (BLE2902*)this->inputMediaKeys->getDescriptorByUUID(BLEUUID((uint16_t)0x2902));
-  desc->setNotifications(false);
-
-  advertising->start();
-
+    advertising->start();
+    logBLEInfo("onDisconnect", "Advertising restarted after disconnection");
+  } catch (...) {
+    logBLEError("onDisconnect", "Exception during disconnection cleanup");
+  }
 #endif // !USE_NIMBLE
 }
 

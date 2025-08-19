@@ -130,6 +130,9 @@ public:
   
   // New function to set security mode
   void setSecurityMode(uint8_t mode);
+  
+  // BLE error logging control
+  void enableErrorLogging(bool enable);
 
   void set_vendor_id(uint16_t vid);
   void set_product_id(uint16_t pid);

@@ -498,6 +498,18 @@ void processLine(String line) {
   }
   
   if (payload == "" && command != "") {                       // Command from (1)
+    // Check BLE connection before processing commands
+    if (isBLE && !BLEKeyboard.isConnected()) {
+      display.fillScreen(BLACK);
+      display.setTextColor(WHITE);
+      display.setCursor(10, 50);
+      display.println("BLE DISCONNECTED!");
+      display.setCursor(10, 70);
+      display.println("Cannot execute: " + command);
+      delay(3000);
+      return;
+    }
+    
     processCommand(command);                                // Process command
     // Add extra delay for BLE to ensure key is registered
     if (isBLE) delay(bleKeyDelay);
@@ -518,8 +530,33 @@ void processLine(String line) {
     
     // For BLE, type characters one by one with a delay for better reliability
     if (isBLE) {
+      // Check if BLE is still connected before sending characters
+      if (!BLEKeyboard.isConnected()) {
+        display.fillScreen(BLACK);
+        display.setTextColor(WHITE);
+        display.setCursor(10, 50);
+        display.println("BLE DISCONNECTED!");
+        display.setCursor(10, 70);
+        display.println("Script execution stopped");
+        delay(3000);
+        return;
+      }
+      
       for (int i = 0; i < payload.length(); i++) {
         char c = payload[i];
+        
+        // Verify connection before each character for long strings
+        if (!BLEKeyboard.isConnected()) {
+          display.fillScreen(BLACK);
+          display.setTextColor(WHITE);
+          display.setCursor(10, 50);
+          display.println("BLE DISCONNECTED!");
+          display.setCursor(10, 70);
+          display.println("At character: " + String(i + 1) + "/" + String(payload.length()));
+          delay(3000);
+          return;
+        }
+        
         BLEKeyboard.write(c);
         delay(bleKeyDelay);  // Add delay between each character for BLE
       }
@@ -1424,22 +1461,32 @@ void showBLEDeviceList() {
 void connectToBLEDevice(String deviceAddress) {
   showProgressIndicator("Initializing BLE...", 0);
   
+  // Enable comprehensive error logging for troubleshooting
+  BLEKeyboard.enableErrorLogging(true);
+  
   // Initialize BLE with bypass authentication settings
   BLEKeyboard.setSecurityMode(BLE_SECURITY_LOW);
   
   showProgressIndicator("Starting BLE service...", 25);
   BLEKeyboard.begin();
   
+  // Check if BLE initialization was successful
+  delay(1000); // Give BLE time to initialize
+  
   showProgressIndicator("Connecting to device...", 50);
   
-  // Wait for connection with timeout
+  // Wait for connection with timeout and better error reporting
   int connectionAttempts = 0;
-  const int maxAttempts = 10;
+  const int maxAttempts = 15;  // Increased attempts for better reliability
   
   while (!BLEKeyboard.isConnected() && connectionAttempts < maxAttempts) {
     delay(500);
     connectionAttempts++;
-    showProgressIndicator("Connecting...", 50 + (connectionAttempts * 5));
+    
+    // Provide more detailed progress feedback
+    int progress = 50 + (connectionAttempts * 3);
+    String statusMsg = "Connecting... (" + String(connectionAttempts) + "/" + String(maxAttempts) + ")";
+    showProgressIndicator(statusMsg.c_str(), progress);
   }
   
   if (BLEKeyboard.isConnected()) {
@@ -1464,17 +1511,30 @@ void connectToBLEDevice(String deviceAddress) {
     display.println("Ready to execute scripts!");
     delay(2000);
   } else {
-    // Connection failed
+    // Connection failed - provide detailed error information
     display.fillScreen(BLACK);
     display.setTextColor(WHITE);
-    display.setCursor(10, 30);
-    display.println("CONNECTION FAILED");
+    display.setCursor(10, 10);
+    display.println("BLE CONNECTION FAILED");
     display.setTextColor(PURPLE);
+    display.setCursor(10, 30);
+    display.println("Target: " + deviceAddress);
     display.setCursor(10, 50);
-    display.println("Device may be out of range");
+    display.println("Attempts: " + String(connectionAttempts) + "/" + String(maxAttempts));
     display.setCursor(10, 70);
-    display.println("or not accepting connections");
+    display.println("Possible causes:");
     display.setCursor(10, 90);
+    display.println("- Device out of range");
+    display.setCursor(10, 110);
+    display.println("- Device not pairable");
+    display.setCursor(10, 130);
+    display.println("- BLE initialization failed");
+    
+    // Clean up BLE resources on failure
+    BLEKeyboard.end();
+    
+    display.setTextColor(WHITE);
+    display.setCursor(10, 160);
     display.println("Press any key to retry");
     
     while (true) {
