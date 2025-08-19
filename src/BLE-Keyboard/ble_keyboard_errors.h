@@ -1,6 +1,14 @@
 #ifndef BLE_KEYBOARD_ERRORS_H
 #define BLE_KEYBOARD_ERRORS_H
 
+/**
+ * @file ble_keyboard_errors.h
+ * @brief BLE Keyboard Error Codes and Status Definitions
+ * 
+ * This header defines error codes and status constants used by the BLE Keyboard library.
+ * These error codes provide standardized error handling across BLE keyboard operations.
+ */
+
 // BLE Keyboard Error Codes
 #define BLE_KEYBOARD_SUCCESS                0x00
 #define BLE_KEYBOARD_ERROR_GENERIC          0x01
