@@ -40,6 +40,12 @@ jobs:
         run: |
           arduino-cli compile --fqbn esp32:esp32:m5stack-cardputer --output-dir ./build BadCard.ino
           
+      - name: Verify build outputs
+        run: |
+          echo "Build completed successfully!"
+          echo "Generated files:"
+          ls -lh build/
+          
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
