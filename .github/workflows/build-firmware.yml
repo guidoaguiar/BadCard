@@ -37,6 +37,7 @@ jobs:
           arduino-cli lib install "M5Stack"
           arduino-cli lib install "M5Unified"
           arduino-cli lib install "M5GFX"
+          arduino-cli lib install "NimBLE-Arduino"
           
       - name: Compile firmware
         run: |
