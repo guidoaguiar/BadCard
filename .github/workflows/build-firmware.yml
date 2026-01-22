@@ -1,0 +1,50 @@
+name: Build Firmware
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Arduino CLI
+        uses: arduino/setup-arduino-cli@v1
+        
+      - name: Install ESP32 platform
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+          
+      - name: Install required libraries
+        run: |
+          arduino-cli lib install "M5Cardputer"
+          arduino-cli lib install "M5Stack"
+          arduino-cli lib install "M5Unified"
+          arduino-cli lib install "M5GFX"
+          
+      - name: Compile firmware
+        run: |
+          arduino-cli compile --fqbn esp32:esp32:m5stack-cardputer --output-dir ./build BadCard.ino
+          
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: BadCard-firmware
+          path: |
+            build/*.bin
+            build/*.elf
+          retention-days: 30
