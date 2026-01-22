@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
         
       - name: Setup Arduino CLI
-        uses: arduino/setup-arduino-cli@v1
+        uses: arduino/setup-arduino-cli@v2
         
       - name: Install ESP32 platform
         run: |
@@ -38,7 +38,7 @@ jobs:
           
       - name: Compile firmware
         run: |
-          arduino-cli compile --fqbn esp32:esp32:m5stack-cardputer --output-dir ./build BadCard.ino
+          arduino-cli compile --fqbn esp32:esp32:esp32s3 --output-dir ./build BadCard.ino
           
       - name: Verify build outputs
         run: |
